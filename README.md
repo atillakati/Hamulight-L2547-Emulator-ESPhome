@@ -204,7 +204,7 @@ script:
     # Generator und Sendeaktionen bleiben Teil der lokalen ESPHome-Konfiguration.
 ```
 
-Zur Laufzeit wird die zur gewählten Anlage gehörige **lokal konfigurierte Gerätekennung** eingesetzt; die vollständige Gerätekennung bzw. ein direkt verwendbares vollständiges Funktelegramm wird hier bewusst **nicht veröffentlicht**. Der Encoder bildet den gültigen 208-Bit-Frame, berechnet die kennungsabhängige XOR-Prüfsumme, maskiert die Nutzdaten mit dem Counter und sendet jede Gruppe achtmal.
+Zur Laufzeit wird die zur gewählten Anlage gehörige **lokal konfigurierte Gerätekennung** eingesetzt. Der Encoder bildet den gültigen 208-Bit-Frame, berechnet die kennungsabhängige XOR-Prüfsumme, maskiert die Nutzdaten mit dem Counter und sendet jede Gruppe achtmal.
 
 Für zwei Anlagen sind getrennte Zählervariablen vorgesehen (`hamulight_counter_1` und `hamulight_counter_2`). Das bestehende gemeinsame Sendemodul wird über eine wartende Ausführungsfolge (`mode: queued`) serialisiert. Beim Dimmen folgen mehrere Gruppen mit erhöhtem Counter in einem Abstand in der Größenordnung von 167 ms.
 
