@@ -1,0 +1,164 @@
+script:
+  - id: hamulight_send
+    mode: queued
+    max_runs: 20
+    parameters:
+      device: int   # 1 oder 2
+      command: int  # 0x01 / 0x02 / 0x10 / 0x20 / 0x21
+      groups: int   # 1 bei Tastendruck; mehrere Gruppen beim Dimmen
+    then:
+      - if:
+          condition:
+            lambda: 'return (device == 1 || device == 2) && groups >= 1 && groups <= 40;'
+          then:
+            - repeat:
+                count: !lambda 'return groups;'
+                then:
+                  - remote_transmitter.transmit_raw:
+                      transmitter_id: hamulight_tx
+                      code: !lambda |-
+                        const uint8_t counter = (device == 1)
+                          ? id(hamulight_counter_1) : id(hamulight_counter_2);
+                        const uint8_t cmd = static_cast<uint8_t>(command);
+                        
+                        // set device id, update here the device ids for your installation
+                        const uint8_t id_hi = device == 1 ? 0x00 : 0x00;
+                        const uint8_t id_lo = device == 1 ? 0x00 : 0x00;
+
+                        uint8_t payload[14] = {
+                          0xAA, 0x02, 0x00, id_hi, id_lo, 0x01, cmd,
+                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                        };
+                        uint8_t checksum = 0;
+                        for (int i = 0; i < 13; i++) checksum ^= payload[i];
+                        payload[13] = checksum;
+                        for (int i = 0; i < 14; i++) payload[i] ^= counter;
+
+                        std::vector<uint8_t> bits;
+                        bits.reserve(208);
+                        for (int i = 0; i < 80; i++)
+                          bits.push_back((i % 2) == 0 ? 1 : 0);
+                        auto append_byte = [&](uint8_t value) {
+                          for (int b = 7; b >= 0; --b)
+                            bits.push_back((value >> b) & 1);
+                        };
+                        append_byte(0x2D);
+                        append_byte(0xD4);
+                        for (uint8_t value : payload) append_byte(value);
+
+                        std::vector<int32_t> raw;
+                        uint8_t current = bits[0];
+                        int count = 0;
+                        auto append_run = [&](uint8_t level, int n) {
+                          int duration = (n * 100 + 1) / 3;
+                          raw.push_back(level ? duration : -duration);
+                        };
+                        for (uint8_t bit : bits) {
+                          if (bit == current) count++;
+                          else {
+                            append_run(current, count);
+                            current = bit;
+                            count = 1;
+                          }
+                        }
+                        append_run(current, count);
+                        // Sendepause stets LOW; bei bereits LOW endendem Frame
+                        // ist die Pause mit dem letzten LOW-Lauf zu verbinden.
+                        if (!raw.empty() && raw.back() < 0) raw.back() -= 1100;
+                        else raw.push_back(-1100);
+                        return raw;
+                      repeat:
+                        times: 8
+                        wait_time: 0ms
+                  - lambda: |-
+                      if (device == 1) id(hamulight_counter_1)++;
+                      else id(hamulight_counter_2)++;
+                  # Acht Frames benötigen ~64 ms; für Dimmen soll eine neue
+                  # Gruppe ungefähr alle 167 ms starten.
+                  - if:
+                      condition:
+                        lambda: 'return groups > 1;'
+                      then:
+                        - delay: 100ms
+          else:
+            - logger.log:
+                tag: hamulight
+                level: WARN
+                format: 'Ungueltiger Sendebefehl / Anlage / Gruppenzahl'
+
+  - id: hamulight_receive
+    mode: single
+    parameters:
+      raw: int[]
+    then:
+      - lambda: |-
+          constexpr size_t FRAME_BITS = 208;
+          std::vector<uint8_t> bits;
+          bits.reserve(1024);
+          for (int32_t t : raw) {
+            int64_t duration = t;
+            if (duration < 0) duration = -duration;
+            if (duration < 10) continue;
+            if (duration > 5000) {
+              if (bits.empty()) continue;
+              break;
+            }
+            int count = (duration * 3 + 50) / 100;
+            if (count < 1 || count > 250) return;
+            uint8_t level = t > 0 ? 1 : 0;
+            for (int i = 0; i < count; i++) bits.push_back(level);
+            if (bits.size() > 2048) return;
+          }
+          if (bits.size() < FRAME_BITS) return;
+
+          for (size_t start = 0; start + FRAME_BITS <= bits.size(); ++start) {
+            bool valid = true;
+            for (int i = 0; i < 80; ++i) {
+              if (bits[start + i] != static_cast<uint8_t>(i % 2 == 0)) {
+                valid = false; break;
+              }
+            }
+            if (!valid) continue;
+            const uint8_t sync[2] = {0x2D, 0xD4};
+            for (int i = 0; i < 16; ++i) {
+              if (bits[start + 80 + i] != ((sync[i / 8] >> (7 - i % 8)) & 1)) {
+                valid = false; break;
+              }
+            }
+            if (!valid) continue;
+            uint8_t payload[14] = {};
+            for (int i = 0; i < 14; ++i) {
+              for (int b = 0; b < 8; ++b)
+                payload[i] = (payload[i] << 1) | bits[start + 96 + i * 8 + b];
+            }
+            const uint8_t counter = payload[2];
+            for (uint8_t &byte : payload) byte ^= counter;
+            if (payload[0] != 0xAA || payload[1] != 0x02 ||
+                payload[2] != 0x00 || payload[5] != 0x01) continue;
+
+            // read device id, update here the device ids for your installation
+            const bool dev1 = payload[3] == 0x00 && payload[4] == 0x00;
+            const bool dev2 = payload[3] == 0x00 && payload[4] == 0x00;
+
+            if (!dev1 && !dev2) continue;
+            for (int i = 7; i < 13; i++) {
+              if (payload[i] != 0) { valid = false; break; }
+            }
+            if (!valid) continue;
+            uint8_t checksum = 0;
+            for (int i = 0; i < 13; ++i) checksum ^= payload[i];
+            if (checksum != payload[13]) continue;
+
+            const uint8_t command = payload[6];
+            const int device = dev1 ? 1 : 2;
+            ESP_LOGI("hamulight", "RX Anlage %d: Counter=0x%02X CMD=0x%02X",
+                     device, counter, command);
+            if (command == 0x01) {
+              if (dev1) id(hamulight_power_1).publish_state(true);
+              else id(hamulight_power_2).publish_state(true);
+            } else if (command == 0x02) {
+              if (dev1) id(hamulight_power_1).publish_state(false);
+              else id(hamulight_power_2).publish_state(false);
+            }
+            return;
+          }

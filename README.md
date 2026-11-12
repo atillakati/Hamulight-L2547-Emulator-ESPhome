@@ -4,23 +4,21 @@
 
 **Autor:** Atilla Kati  
 **Dokumentationsstand:** 11. November 2026  
-**Status:** Erste Anlage mit Senden, Empfangen und ON/OFF-Zustandsnachführung getestet; zweite Anlage softwareseitig vorbereitet, praktischer Sende-/Funktionstest ausstehend.
-
-> **Hinweis zur Veröffentlichung:** Dieses Dokument enthält absichtlich **keine konkreten Gerätekennungen** und keine vollständigen Beispieltelegramme, aus denen sich diese Kennungen rekonstruieren lassen. Die Gerätekennungen werden ausschließlich als abstrakte Felder oder symbolische Bezeichner beschrieben.
+**Status:** Anlage mit Senden, Empfangen und ON/OFF-Zustandsnachführung und Dimmen getestet
 
 ## 1. Zusammenfassung
 
-Die originale Hamulight-Fernbedienung **L2547-1** steuert den LED-Treiber **L2564** per Funk. Das proprietäre Protokoll wurde mittels Nooelec NESDR SMArt v5 und Universal Radio Hacker (URH) untersucht und erfolgreich mit einem **diymore ESP32 LoRa V4.3 (ESP32-S3)** und externem **EBYTE CC1101** nachgebildet. Die neun vorhandenen 12-V-LED-Spots und der LED-Treiber bleiben unverändert. Die auf demselben ESP32 verwendete Somfy-Steuerung über SX1262 bleibt unabhängig.
+Die originale Hamulight-Fernbedienung **L2547-1** steuert den LED-Treiber **L2564** per Funk. Das proprietäre Protokoll wurde mittels Nooelec NESDR SMArt v5 und Universal Radio Hacker (URH) untersucht und erfolgreich mit einem **diymore ESP32 LoRa V4.3 (ESP32-S3)** und externem **EBYTE CC1101** nachgebildet. Die neun vorhandenen 12-V-LED-Spots und der LED-Treiber bleiben unverändert. 
 
 **Für die erste Anlage erfolgreich getestet:**
 
 - Ein- und Ausschalten per ESPHome/CC1101.
-- Heller- und Dunklerdimmen bei gehaltenem Befehl.
+- Heller- und Dunklerdimmen
 - Zyklisches Durchschalten der vier Stufen **25 %, 50 %, 75 % und 100 %**.
 - Empfang und Decodierung der originalen ON-/OFF-Fernbedienungstelegramme.
 - Aktualisierung des ON-/OFF-Zustands in ESPHome und Home Assistant bei Verwendung der Originalfernbedienung.
 
-**Erweiterung auf zwei Anlagen:** Die jüngste Vergleichsaufzeichnung mit zwei L2547-1-Fernbedienungen zeigt dieselbe Rahmenstruktur und denselben ON-Befehl, jedoch **unterschiedliche gerätespezifische Kennungsfelder**. Der Sender und Decoder wurden dafür konzeptionell bzw. in einer YAML-Teilkonfiguration auf zwei getrennte Anlagen vorbereitet. Ein tatsächlicher Funktionstest an der zweiten, noch nicht fertig verdrahteten Anlage steht aus.
+**Erweiterung auf zwei Anlagen:** Die jüngste Vergleichsaufzeichnung mit zwei L2547-1-Fernbedienungen zeigt dieselbe Rahmenstruktur und denselben ON-Befehl, jedoch **unterschiedliche gerätespezifische Kennungsfelder**. Der Sender und Decoder wurden dafür konzeptionell bzw. in einer YAML-Teilkonfiguration auf zwei getrennte Anlagen vorbereitet. 
 
 Eine **echte Statusbestätigung des LED-Treibers** und ein **absoluter Helligkeitswert über Funk** wurden bisher nicht nachgewiesen. Der angezeigte Schaltzustand ist der zuletzt erkannte oder selbst gesendete Befehl, kein vom Treiber quittierter Zustand.
 
@@ -51,6 +49,60 @@ Eine **echte Statusbestätigung des LED-Treibers** und ein **absoluter Helligkei
 | SDR-Aufnahme | URH, Center 433,500 MHz, 2 MS/s, ASK/NRZ, ca. 67 Samples/Symbol |
 
 Der CC1101 arbeitet **halbduplex**. Während des Sendens ist kein zeitgleicher Empfang über denselben Funkbaustein möglich.
+
+```yaml
+cc1101:
+  spi_id: led_spi
+  cs_pin: GPIO41
+  frequency: 433.881MHz
+  modulation_type: ASK/OOK
+  symbol_rate: 30000
+  filter_bandwidth: 203kHz
+  rx_attenuation: 0dB
+  output_power: 10
+```
+
+Konfiguration der Empfang- und Sendeeinheit:
+
+```yaml
+remote_receiver:
+  pin: GPIO6
+  dump: []
+  filter: 10us
+  idle: 5ms
+  use_dma: true
+  rmt_symbols: 1024
+  receive_symbols: 1024
+  buffer_size: 16kB
+  on_raw:
+    then:
+      - script.execute:
+          id: hamulight_receive
+          # Auf ESP32-S3 ist x std::vector<long>, int[] erwartet std::vector<int>.
+          raw: !lambda 'return std::vector<int>(x.begin(), x.end());'
+
+remote_transmitter:
+  id: hamulight_tx
+  pin: GPIO4
+  carrier_duty_percent: 100%
+
+  on_transmit:
+    then:
+      - logger.log:
+          format: "HAMULIGHT: CC1101 wechselt in TX"
+          level: WARN
+          tag: hamulight
+      - cc1101.begin_tx
+
+  on_complete:
+    then:
+      - cc1101.begin_rx
+      - logger.log:
+          format: "HAMULIGHT: CC1101 zurueck in RX"
+          level: WARN
+          tag: hamulight
+```
+
 
 ## 3. Signalanalyse und Timing
 
@@ -133,9 +185,7 @@ Die zusätzliche URH-Aufzeichnung `Hamulight_2xOn_2xL2547-1.complex16s` mit zuge
 | Prüfsumme | Kennungsabhängig, gültiges XOR-Format | Kennungsabhängig, gültiges XOR-Format |
 | Praktischer ESP32-Sendetest | Erfolgreich | Noch ausstehend |
 
-**Hinweis zur Reihenfolge:** Die zeitliche Folge im ausgewerteten Export wich von der beschriebenen Betätigungsreihenfolge ab. Für die Trennung der Telegrammtypen ist dies nicht entscheidend; die Zuordnung der realen Anlagen sollte beim nächsten Funktionstest anhand der tatsächlich reagierenden Treiber endgültig verifiziert werden.
-
-Die Analyse legt nahe, dass ein gemeinsamer CC1101 beide Anlagen anhand des Kennungsfeldes adressieren kann. **Nicht bewiesen ist bislang**, ob Anlage B zusätzlich alle Dimm- und Stufenbefehle im Betrieb akzeptiert oder ob sich bei gleichzeitiger Bedienung besondere Counter-Anforderungen ergeben.
+Die Analyse legt nahe, dass ein gemeinsamer CC1101 beide Anlagen anhand des Kennungsfeldes adressieren kann. 
 
 ## 6. ESPHome-Architektur für zwei Anlagen
 
@@ -196,6 +246,9 @@ Das Empfangsscript:
 
 Für Home Assistant ist je Anlage eine **native binäre ESPHome-Lichtentität** ohne Helligkeitsschieberegler sinnvoll. Die Bedienfunktionen Heller, Dunkler und Nächste Stufe bleiben getrennte Aktionen. Die UI sollte diese Aktionen bei ausgeschaltetem Licht ausblenden oder deaktivieren; auch der ESP32 sollte Dimm-/Stufenbefehle für ausgeschaltete LEDs nicht auslösen.
 
+![Abbildung 3: Lights off](images/UI_Light_Off.png)
+![Abbildung 4: Lights on](images/UI_Light_On.png)
+
 Der binäre Lichtzustand wird vom ESP32 aus **empfangenen bzw. lokal ausgelösten ON-/OFF-Befehlen** nachgeführt. **Es liegt keine aktive Quittierung des LED-Treibers vor.** Fremde Sender, Paketverlust, Funkkollisionen, Stromausfall oder Bedienung während eines CC1101-Sendevorgangs können die Zustandsanzeige entkoppeln.
 
 ## 7. Validierung und offene Punkte
@@ -236,9 +289,14 @@ Der binäre Lichtzustand wird vom ESP32 aus **empfangenen bzw. lokal ausgelöste
 | `Hamulight_4_Stufen.complex16s` und `.proto` | Zyklische Helligkeitsstufen |
 | `Hamulight_2xOn_2xL2547-1.complex16s` und `.proto` | Vergleich zweier originaler Fernbedienungen |
 
-**Datenschutz-/Dokumentationshinweis:** Die aufgeführten Rohdaten enthalten Funkkennungen. Sie gehören **nicht** zum Bildarchiv und sind **nicht** in der bereitgestellten ZIP-Datei enthalten.
 
-## 9. Herkunft und Grenzen
+## 9. KI-Unterstützung
+
+Die Entwicklung und Dokumentation dieses Projekts erfolgten mit Unterstützung von **ChatGPT (OpenAI)**.
+Die KI wurde insbesondere bei der Analyse und Interpretation der aufgezeichneten Funktelegramme, der Rekonstruktion des Funkprotokolls, der Implementierung der ESPHome-Komponenten eingesetzt.
+Die Hardwareintegration, die Durchführung der Messungen, die praktischen Funktionstests und die Validierung der Ergebnisse erfolgten durch den Autor.
+
+## 10. Herkunft und Grenzen
 
 Die Dokumentation beschreibt **Reverse-Engineering-Ergebnisse** und ist keine offizielle Hamulight-Protokollspezifikation. Der bislang erreichte Betriebsnachweis gilt ausdrücklich für Anlage A.
 
