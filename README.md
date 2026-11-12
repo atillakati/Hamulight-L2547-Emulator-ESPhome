@@ -240,8 +240,6 @@ Der binäre Lichtzustand wird vom ESP32 aus **empfangenen bzw. lokal ausgelöste
 
 ## 9. Herkunft und Grenzen
 
-Die technischen Basismessungen stammen aus der ursprünglichen Messkampagne und dem Bericht vom 6. November 2026. Die späteren Funktionen (Dimmen, Stufenwechsel, RX-Zustandsnachführung) wurden anschließend per URH und Praxistests ergänzt. Die Zweianlagen-Erweiterung basiert zusätzlich auf einem Vergleich zweier L2547-1-Fernbedienungen; ihr Sende-/Installationstest steht noch aus.
-
 Die Dokumentation beschreibt **Reverse-Engineering-Ergebnisse** und ist keine offizielle Hamulight-Protokollspezifikation. Der bislang erreichte Betriebsnachweis gilt ausdrücklich für Anlage A.
 
 ---
