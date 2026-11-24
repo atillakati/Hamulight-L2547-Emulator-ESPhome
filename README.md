@@ -182,7 +182,7 @@ The additional URH recording `Hamulight_2xOn_2xL2547-1.complex16s`, together wit
 | Device identifier | Distinct, not disclosed | Distinct, not disclosed |
 | Counter | Increments independently for each remote | Increments independently for each remote |
 | Checksum | Identifier-dependent, valid XOR format | Identifier-dependent, valid XOR format |
-| Practical ESP32 transmission test | Successful | Pending |
+| Practical ESP32 transmission test | Successful | Successful |
 
 The analysis suggests that one shared CC1101 can address both installations using their identifier fields.
 
@@ -261,17 +261,17 @@ The ESP32 tracks the binary light state based on **received or locally triggered
 | Installation A: Original remote control decoded by RX | **Confirmed** |
 | Installation A: ON/OFF state tracking in HA | **Confirmed** |
 | Second remote control: protocol/identifier differences in SDR | **Analyzed** |
-| Two installations: separate mapping of transmitter and decoder in ESPHome code | **Prepared; not yet fully tested in practice** |
-| Installation B: ESP32 ON/OFF at LED driver | **Test pending** |
-| Installation B: Dimming and level changes | **Test pending** |
-| Native light entities for both installations operating together in HA | **Not yet confirmed as a complete system** |
+| Two installations: separate mapping of transmitter and decoder in ESPHome code | **Confirmed** |
+| Installation B: ESP32 ON/OFF at LED driver | **Confirmed** |
+| Installation B: Dimming and level changes | **Confirmed** |
+| Native light entities for both installations operating together in HA | **Confirmed** |
 | Actual driver feedback or absolute brightness | **Not demonstrated** |
 
 ### Further Investigation
 
 - Counter rollover at `0xFF` and behavior after restart or power loss.
-- Counter behavior when the ESP32 and both original remote controls are used concurrently.
-- Unambiguous assignment of the physical remote controls and LED drivers during the later installation B test.
+- Counter behavior when the ESP32 and both original remote controls are used concurrently. => **Confirmed**
+- Unambiguous assignment of the physical remote controls and LED drivers during the later installation B test. => **Confirmed**
 - Behavior when radio commands overlap in time, and radio range at the final installation location.
 - No actual brightness feedback from the L2564 is known. The four levels are managed cyclically by the driver rather than being transmitted as absolute target values.
 
@@ -299,7 +299,7 @@ Hardware integration, measurement activities, practical functional tests, and va
 
 ## 10. Origin and Limitations
 
-This documentation describes **reverse-engineering findings** and is not an official Hamulight protocol specification. The demonstrated operational results currently apply explicitly to installation A only.
+This documentation describes **reverse-engineering findings** and is not an official Hamulight protocol specification. 
 
 ---
 
